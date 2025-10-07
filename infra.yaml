@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for Film Script Analysis Lambda + API Gateway + S3
+
+Resources:
+
+  # -------------------------
+  # S3 Bucket
+  # -------------------------
+  FilmScriptsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: film-scripts-bucket-ai
+      VersioningConfiguration:
+        Status: Enabled
+
+  # -------------------------
+  # IAM Role for Lambda
+  # -------------------------
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaFilmScriptExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: LambdaS3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::film-scripts-bucket-ai
+                  - !Sub arn:aws:s3:::film-scripts-bucket-ai/*
+
+  # -------------------------
+  # Lambda Function
+  # -------------------------
+  ConvertFDXToJsonLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ConvertFDXToJson
+      Runtime: python3.11
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref FilmScriptsBucket
+          MODEL_ID: arn:aws:bedrock:eu-north-1::foundation-model/amazon.nova-lite-v1:0
+      Code:
+        S3Bucket: your-lambda-code-bucket
+        S3Key: convert-fdx-to-json.zip
+
+  # -------------------------
+  # API Gateway
+  # -------------------------
+  ScriptAnalysisAPI:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: ScriptAnalysisAPI
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  ScriptAnalysisResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ScriptAnalysisAPI
+      ParentId: !GetAtt ScriptAnalysisAPI.RootResourceId
+      PathPart: deploy
+
+  SubmitScriptMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ScriptAnalysisAPI
+      ResourceId: !Ref ScriptAnalysisResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConvertFDXToJsonLambda.Arn}/invocations
+
+  # -------------------------
+  # Lambda Permission for API Gateway
+  # -------------------------
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ConvertFDXToJsonLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ScriptAnalysisAPI}/*/POST/deploy
+
+Outputs:
+  S3BucketName:
+    Description: S3 bucket for scripts
+    Value: !Ref FilmScriptsBucket
+
+  LambdaFunctionName:
+    Description: Lambda function name
+    Value: !Ref ConvertFDXToJsonLambda
+
+  ApiGatewayUrl:
+    Description: Invoke URL for API Gateway
+    Value: !Sub https://${ScriptAnalysisAPI}.execute-api.${AWS::Region}.amazonaws.com/prod/deploy
