@@ -111,7 +111,7 @@ Outputs:
 
   LambdaFunctionName:
     Description: Lambda function name
-    Value: !Ref ConvertFDXToJson
+    Value: !Ref ConvertFDXToJsonLambda
 
   ApiGatewayUrl:
     Description: Invoke URL for API Gateway
