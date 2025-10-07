@@ -107,11 +107,11 @@ Resources:
 Outputs:
   S3BucketName:
     Description: S3 bucket for scripts
-    Value: !Ref FilmScriptsBucket
+    Value: !Ref film-scripts-bucket-ai 
 
   LambdaFunctionName:
     Description: Lambda function name
-    Value: !Ref ConvertFDXToJsonLambda
+    Value: !Ref ConvertFDXToJson
 
   ApiGatewayUrl:
     Description: Invoke URL for API Gateway
